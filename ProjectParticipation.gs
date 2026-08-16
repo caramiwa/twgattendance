@@ -6,16 +6,24 @@
  *   Column B: TWG Member
  *   Columns C onward: Activities
  *
- * Metrics per TWG member:
- *   Projects Invited       = distinct project codes where the member appears.
- *   Projects Participated  = invited projects with at least one Y.
- *   Project Participation  = Projects Participated / Projects Invited.
- *   Activities             = non-blank Y/N activity cells.
- *   Attended               = Y activity cells.
- *   Activity Attendance    = Attended / Activities.
+ * The report puts activity attendance in the context of project exposure.
+ * It does NOT calculate or label a "commitment score."
  *
- * Blank cells are treated as not applicable and excluded from activity totals.
- * Unexpected activity values are flagged and excluded from the Y/N calculations.
+ * Metrics per TWG member:
+ *   Projects Invited       = distinct projects assigned to the member.
+ *   Projects Participated  = assigned projects with at least one Y.
+ *   Project Participation  = Projects Participated / Projects Invited.
+ *   Activities             = applicable activities (Y + N); blanks excluded.
+ *   Attended               = Y activity cells.
+ *   Not Attended           = N activity cells.
+ *   Attendance             = Attended / Activities.
+ *
+ * Blank cells are treated as not applicable.
+ * Unexpected activity values are counted separately and excluded from Y/N metrics.
+ *
+ * The first three activity metrics (Activities, Attended, Not Attended) are
+ * deliberately kept consistent with the activity-level attendance analysis
+ * so this report can be checked against generateAttendanceSummary().
  */
 function generateProjectParticipationAnalysis() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -29,7 +37,7 @@ function generateProjectParticipationAnalysis() {
 
   const byMember = {};
 
-  // Start at row 2; row 1 is assumed to contain headers.
+  // Row 1 is assumed to contain headers.
   for (let r = 1; r < data.length; r++) {
     const projectCode = String(data[r][0] ?? '').trim();
     const member = String(data[r][1] ?? '').trim();
@@ -41,17 +49,16 @@ function generateProjectParticipationAnalysis() {
         projects: new Map(),
         activities: 0,
         attended: 0,
+        notAttended: 0,
         unexpected: 0
       };
     }
 
     const stats = byMember[member];
 
-    // Keep one project record per member/project combination.
     if (!stats.projects.has(projectCode)) {
       stats.projects.set(projectCode, {
-        attended: false,
-        hasApplicableActivity: false
+        participated: false
       });
     }
 
@@ -67,11 +74,10 @@ function generateProjectParticipationAnalysis() {
       if (value === 'Y') {
         stats.activities++;
         stats.attended++;
-        project.attended = true;
-        project.hasApplicableActivity = true;
+        project.participated = true;
       } else if (value === 'N') {
         stats.activities++;
-        project.hasApplicableActivity = true;
+        stats.notAttended++;
       } else {
         stats.unexpected++;
       }
@@ -94,10 +100,10 @@ function generateProjectParticipationAnalysis() {
     'Projects Invited',
     'Projects Participated',
     'Project Participation %',
-    'Applicable Activities',
-    'Attended Activities',
-    'Activity Attendance %',
-    'Avg. Attended Activities / Project',
+    'Activities',
+    'Attended',
+    'Not Attended',
+    'Attendance %',
     'Unexpected Values'
   ]];
 
@@ -111,19 +117,15 @@ function generateProjectParticipationAnalysis() {
     let projectsParticipated = 0;
 
     stats.projects.forEach(project => {
-      if (project.attended) projectsParticipated++;
+      if (project.participated) projectsParticipated++;
     });
 
     const projectParticipation = projectsInvited > 0
       ? projectsParticipated / projectsInvited
       : 0;
 
-    const activityAttendance = stats.activities > 0
+    const attendance = stats.activities > 0
       ? stats.attended / stats.activities
-      : 0;
-
-    const averageAttendedPerProject = projectsInvited > 0
-      ? stats.attended / projectsInvited
       : 0;
 
     output.push([
@@ -133,8 +135,8 @@ function generateProjectParticipationAnalysis() {
       projectParticipation,
       stats.activities,
       stats.attended,
-      activityAttendance,
-      averageAttendedPerProject,
+      stats.notAttended,
+      attendance,
       stats.unexpected
     ]);
   });
@@ -151,10 +153,8 @@ function generateProjectParticipationAnalysis() {
   if (output.length > 1) {
     outputSheet.getRange(2, 4, output.length - 1, 1)
       .setNumberFormat('0.00%');
-    outputSheet.getRange(2, 7, output.length - 1, 1)
-      .setNumberFormat('0.00%');
     outputSheet.getRange(2, 8, output.length - 1, 1)
-      .setNumberFormat('0.00');
+      .setNumberFormat('0.00%');
     outputSheet.getRange(2, 9, output.length - 1, 1)
       .setNumberFormat('0');
   }
